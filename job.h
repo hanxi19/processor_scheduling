@@ -19,62 +19,68 @@
 #define BUFLEN 100
 #define GLOBALFILE "screendump"
 
-//ö����ҵ״̬�����������У����
+// 作业状态枚举
 enum jobstate
 {
-  READY, RUNNING, DONE
+  READY,    // 就绪
+  RUNNING,  // 运行中
+  DONE      // 完成
 };
 
-//ö���������ͣ����ӣ����ӣ���ǰ״̬��ѯ
+// 命令类型枚举
 enum cmdtype
 {
-  ENQ = -1, DEQ = -2, STAT = -3
+  ENQ = -1,   // 入队
+  DEQ = -2,   // 出队
+  STAT = -3   // 查询状态
 };
 
-/* this is data passed in fifo */
-//��ҵ��������ṹ
+/* 通过FIFO传递的数据结构，表示作业命令 */
 struct jobcmd {
-  enum	cmdtype type;//��ҵ��������
-  int	argnum;//��������
-  int	owner;//��ҵ��owner
-  int	defpri;//Ĭ�����ȼ�
-  int   duration;//Ĭ�ϳ���ʱ��
-  char	data[BUFLEN];//��������
+  enum	cmdtype type;   // 命令类型
+  int	argnum;         // 参数数量
+  int	owner;          // 作业所有者
+  int	defpri;         // 默认优先级
+  int   duration;       // 预计运行时间
+  char	data[BUFLEN];   // 额外数据
 };
 
 #define DATALEN sizeof(struct jobcmd)
 #define error_sys printf
 
-struct jobinfo {//��ҵ��Ϣ�ṹ
-  int    jid;                 /* ��ҵid */
-  int    pid;                 /* ����id */
-  char** cmdarg;              /* ִ�е�������߲���the command & args to execute */
-  int    defpri;              /* Ĭ������Ȩ   default priority */
-  int    curpri;              /* ���ڵ�����Ȩ current priority */
-  int    ownerid;             /* ��ҵӵ����id the job owner id */
-  int    wait_time_hrrf;
-  int    wait_time;           /* �ڵȴ������еȴ���ʱ��the time job in waitqueue */
-  time_t create_time;         /* ������ҵ��ʱ��the time job create */
-  int    run_time;            /* ��ҵ���е�ʱ��the time job running */
-  int    duration;            /* ���ȸ�����ҵ����ʱ��*/
-  enum   jobstate state;      /* ��ҵ״̬job state */
+// 作业信息结构体
+struct jobinfo {
+  int    jid;                 // 作业ID
+  int    pid;                 // 进程ID
+  char** cmdarg;              // 执行命令及参数
+  int    defpri;              // 默认优先级
+  int    curpri;              // 当前优先级
+  int    ownerid;             // 作业所有者ID
+  int    wait_time_hrrf;      // HRRF算法等待时间
+  int    wait_time;           // 等待队列中的等待时间
+  time_t create_time;         // 创建时间
+  int    run_time;            // 已运行时间
+  int    duration;            // 预计总运行时间
+  enum   jobstate state;      // 作业状态
 };
 
-struct waitqueue {            /* ˫������� double link list �������нṹ */
-  struct waitqueue *next;    //��һ���ȴ���ҵ
-  struct jobinfo *job;       //��ǰ�ȴ���ҵ����Ϣ
+// 等待队列节点（双向链表）
+struct waitqueue {
+  struct waitqueue *next;    // 下一个等待作业
+  struct jobinfo *job;       // 当前作业信息
 };
 
-void schedule();//���Ⱥ���
-void sig_handler(int sig, siginfo_t *info, void *notused);//�źŴ���
-int  allocjid();//������ҵid
+// 调度函数声明
+void schedule(); // 调度主函数
+void sig_handler(int sig, siginfo_t *info, void *notused); // 信号处理函数
+int  allocjid(); // 分配作业ID
 
-void do_enq(struct jobinfo *newjob, struct jobcmd enqcmd);//��Ӻ���
-void do_deq(struct jobcmd deqcmd);//���Ӻ���
-void do_stat();//��ʾ��ҵ״̬
-void updateall();//����������ҵ��Ϣ
+void do_enq(struct jobinfo *newjob, struct jobcmd enqcmd); // 入队操作
+void do_deq(struct jobcmd deqcmd); // 出队操作
+void do_stat(); // 显示作业状态
+void updateall(); // 更新所有作业信息
 
-struct waitqueue* (*jobselect)();//�ȴ�������ѡ����ҵ
-void jobswitch();//��ҵת��
+struct waitqueue* (*jobselect)(); // 作业选择函数指针
+void jobswitch(); // 作业切换
 
 #endif
