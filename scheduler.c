@@ -197,7 +197,8 @@ struct waitqueue* jobselect_RR() {
     // 将选中的作业移到队尾
     if (current->next != NULL) {
         head = current->next;
-        for (struct waitqueue* tail = head; tail->next != NULL; tail = tail->next);
+        struct waitqueue* tail = head;
+        for (; tail->next != NULL; tail = tail->next);
         tail->next = selected;
         selected->next = NULL;
     }
