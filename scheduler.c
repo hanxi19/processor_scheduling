@@ -456,20 +456,30 @@ void do_enq(struct jobinfo *newjob, struct jobcmd enqcmd)
 	char	*offset, *argvec, *q;
 	char	**arglist;
 	sigset_t	zeromask;
+	time_t current_time;
 
 	sigemptyset(&zeromask);
 
-	// 初始化作业信息结构体
+	// 获取当前时间
+	time(&current_time);
+
+	// 创建新作业
 	newjob = (struct jobinfo *)malloc(sizeof(struct jobinfo));
+	if (newjob == NULL)
+		error_sys("malloc failed");
+
+	// 初始化作业信息
 	newjob->jid = allocjid();
 	newjob->defpri = enqcmd.defpri;
 	newjob->curpri = enqcmd.defpri;
-    newjob->duration = enqcmd.duration;
 	newjob->ownerid = enqcmd.owner;
 	newjob->state = READY;
-	newjob->create_time = time(NULL);
-    newjob->wait_time = 0;
 	newjob->run_time = 0;
+	newjob->wait_time = 0;
+	newjob->wait_time_hrrf = 0;
+	newjob->create_time = current_time;
+	newjob->arrival_time = current_time;  // 设置到达时间
+	newjob->duration = enqcmd.duration;
 
 	// 处理命令行参数
 	arglist = (char**)malloc(sizeof(char*)*(enqcmd.argnum+1));

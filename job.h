@@ -59,6 +59,7 @@ struct jobinfo {
   int    wait_time_hrrf;      // HRRF算法等待时间
   int    wait_time;           // 等待队列中的等待时间
   time_t create_time;         // 创建时间
+  time_t arrival_time;        // 到达时间
   int    run_time;            // 已运行时间
   int    duration;            // 预计总运行时间
   enum   jobstate state;      // 作业状态
