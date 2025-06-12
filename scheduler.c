@@ -4,6 +4,7 @@
  * @details 实现了一个支持多种调度算法的进程调度器，包括HPF、FCFS和SJF算法
  */
 
+#include <signal.h>     // 信号处理
 #include <stdio.h>      // 标准输入输出
 #include <unistd.h>     // 系统调用接口
 #include <sys/types.h>  // 基本系统数据类型
@@ -11,16 +12,27 @@
 #include <sys/time.h>   // 时间相关
 #include <sys/wait.h>   // 进程等待
 #include <string.h>     // 字符串处理
-#include <signal.h>     // 信号处理
+
 #include <fcntl.h>      // 文件控制
 #include <time.h>       // 时间函数
+#include <ucontext.h>   // 用户上下文定义
+#include <stdlib.h>     // 动态内存分配、exit、atoi
 #include "job.h"        // 作业相关定义
+
+// 错误处理函数
+void error_sys(const char *msg) {
+    perror(msg);
+    exit(1);
+}
 
 // 全局变量定义
 int jobid = 0;          // 作业ID计数器
 int siginfo = 1;        // 信号处理标志
 int fifo;               // FIFO文件描述符
 int globalfd;           // 全局文件描述符
+#define MAX_QUEUES 3    // 多级反馈队列的最大队列数
+#define TIME_QUANTUM 2  // 时间片大小（单位：秒）
+int current_queue = 0;  // 当前队列索引
 
 // 作业队列相关指针
 struct waitqueue *head = NULL;      // 等待队列头指针
@@ -61,7 +73,7 @@ void schedule()
 		do_deq(cmd);
 		break;
 	case STAT:   // 状态查询
-		do_stat(cmd);
+		do_stat();
 		break;
 	default:
 		break;
@@ -197,7 +209,10 @@ struct waitqueue* jobselect_RR() {
     // 将选中的作业移到队尾
     if (current->next != NULL) {
         head = current->next;
-        for (struct waitqueue* tail = head; tail->next != NULL; tail = tail->next);
+        struct waitqueue* tail = head;
+        while (tail->next != NULL) {
+            tail = tail->next;
+        }
         tail->next = selected;
         selected->next = NULL;
     }
@@ -228,9 +243,8 @@ struct waitqueue* jobselect_HRRN() {
     
     // 遍历队列找到响应比最高的作业
     while (current != NULL) {
-        float wait_time = (current_time.tv_sec - current->job->arrival_time.tv_sec) +
-                         (current_time.tv_usec - current->job->arrival_time.tv_usec) / 1000000.0;
-        float response_ratio = (wait_time + current->job->execution_time) / current->job->execution_time;
+        float wait_time = difftime(current_time.tv_sec, current->job->arrival_time);
+        float response_ratio = (wait_time + current->job->duration) / current->job->duration;
         
         if (response_ratio > highest_ratio) {
             highest_ratio = response_ratio;
@@ -304,47 +318,6 @@ struct waitqueue* jobselect_MLFQ() {
     return NULL;
 }
 
-/**
- * @brief 公平共享调度算法
- * @return 选中的作业
- * @details 选择资源使用率最低的作业
- */
-struct waitqueue* jobselect_FairShare() {
-    struct waitqueue* selected = NULL;
-    struct waitqueue* current = head;
-    float lowest_share = 1.0;
-    struct waitqueue* prev = NULL;
-    struct waitqueue* selected_prev = NULL;
-    
-    // 如果队列为空，返回NULL
-    if (current == NULL) {
-        return NULL;
-    }
-    
-    // 计算每个用户的资源使用情况
-    while (current != NULL) {
-        float user_share = (float)current->job->cpu_usage / current->job->max_cpu_usage;
-        
-        if (user_share < lowest_share) {
-            lowest_share = user_share;
-            selected = current;
-            selected_prev = prev;
-        }
-        
-        prev = current;
-        current = current->next;
-    }
-    
-    // 从队列中移除选中的作业
-    if (selected_prev != NULL) {
-        selected_prev->next = selected->next;
-    } else {
-        head = selected->next;
-    }
-    selected->next = NULL;
-    
-    return selected;
-}
 
 /**
  * @brief 作业切换函数
@@ -608,14 +581,14 @@ void do_stat()
 	if (current) {
 		strcpy(timebuf,ctime(&(current->job->create_time)));
 		timebuf[strlen(timebuf) - 1] = '\0';
-		printf("%d\t%d\t%d\t%d\t%d\t%s\t%s\t%d\t%d\n",
+		printf("%d\t%d\t%d\t%d\t%d\t%s\t%d\t%d\t%d\n",
 			current->job->jid,
 			current->job->pid,
 			current->job->ownerid,
 			current->job->run_time,
 			current->job->wait_time,
 			timebuf,
-			"RUNNING",
+			current->job->state,
             current->job->defpri,
             current->job->curpri
             );
@@ -625,14 +598,14 @@ void do_stat()
 	for (p = head; p != NULL; p = p->next) {
 		strcpy(timebuf,ctime(&(p->job->create_time)));
 		timebuf[strlen(timebuf) - 1] = '\0';
-		printf("%d\t%d\t%d\t%d\t%d\t%s\t%s\t%d\t%d\n",
+		printf("%d\t%d\t%d\t%d\t%d\t%s\t%d\t%d\t%d\n",
 			p->job->jid,
 			p->job->pid,
 			p->job->ownerid,
 			p->job->run_time,
 			p->job->wait_time,
 			timebuf,
-			"READY",
+			p->job->state,
             p->job->defpri,
             p->job->curpri
             );
@@ -677,7 +650,6 @@ int main()
     printf("(4) RR\n");
     printf("(5) HRRN\n");
     printf("(6) MLFQ\n");
-    printf("(7) FairShare\n");
     int tmp_choose;
     scanf("%d", &tmp_choose);
     switch(tmp_choose) {
@@ -698,9 +670,6 @@ int main()
             break;
         case 6:
             jobselect = jobselect_MLFQ;
-            break;
-        case 7:
-            jobselect = jobselect_FairShare;
             break;
         default:
             printf("Invalidly Input!");

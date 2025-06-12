@@ -11,6 +11,8 @@
 #include <sys/ipc.h>     // IPC机制
 #include <fcntl.h>       // 文件控制
 #include "job.h"         // 作业相关定义
+#include <stdio.h>       // 标准输入输出
+#include <stdlib.h>      // 动态内存分配
 
 /**
  * @brief 显示命令使用说明
