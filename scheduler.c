@@ -8,6 +8,7 @@
 #include <signal.h>
 #include <fcntl.h>
 #include <time.h>
+#include <limits.h>
 #include "job.h"
 
 int jobid = 0;
@@ -90,15 +91,92 @@ void updateall()
 
 struct waitqueue* jobselect_HPF()
 {
+	struct waitqueue *p, *select = NULL;
+	int max_pri = -1;
+
+	// 遍历等待队列，找到优先级最高的作业
+	for (p = head; p != NULL; p = p->next) {
+		if (p->job->curpri > max_pri) {
+			max_pri = p->job->curpri;
+			select = p;
+		}
+	}
+
+	// 如果找到了作业，将其从等待队列中移除
+	if (select != NULL) {
+		if (select == head) {
+			head = head->next;
+		} else {
+			struct waitqueue *prev = head;
+			while (prev->next != select) {
+				prev = prev->next;
+			}
+			prev->next = select->next;
+		}
+		select->next = NULL;
+	}
+
+	return select;
 }
 
 struct waitqueue* jobselect_FCFS()
- {
+{
+	struct waitqueue *p, *select = NULL;
+	time_t earliest_time = 0;
 
+	// 遍历等待队列，找到创建时间最早的作业
+	for (p = head; p != NULL; p = p->next) {
+		if (select == NULL || p->job->create_time < earliest_time) {
+			earliest_time = p->job->create_time;
+			select = p;
+		}
+	}
+
+	// 如果找到了作业，将其从等待队列中移除
+	if (select != NULL) {
+		if (select == head) {
+			head = head->next;
+		} else {
+			struct waitqueue *prev = head;
+			while (prev->next != select) {
+				prev = prev->next;
+			}
+			prev->next = select->next;
+		}
+		select->next = NULL;
+	}
+
+	return select;
 }
+
 struct waitqueue* jobselect_SJF()// nonpreemptive
 {
+	struct waitqueue *p, *select = NULL;
+	int shortest_duration = INT_MAX;
 
+	// 遍历等待队列，找到执行时间最短的作业
+	for (p = head; p != NULL; p = p->next) {
+		if (p->job->duration < shortest_duration) {
+			shortest_duration = p->job->duration;
+			select = p;
+		}
+	}
+
+	// 如果找到了作业，将其从等待队列中移除
+	if (select != NULL) {
+		if (select == head) {
+			head = head->next;
+		} else {
+			struct waitqueue *prev = head;
+			while (prev->next != select) {
+				prev = prev->next;
+			}
+			prev->next = select->next;
+		}
+		select->next = NULL;
+	}
+
+	return select;
 }
 
 void jobswitch()
@@ -137,9 +215,14 @@ void jobswitch()
     } else if (next != NULL && current != NULL) { /* do switch */
         
         /*TODO 使用kill系统调用，暂停当前作业，运行优先级更高作业，同时更新作业状态*/
+        current->job->state = READY;
+        kill(current->job->pid, SIGSTOP);
         
-        //printf("\nbegin switch: current jid=%d, pid=%d\n",
-        //		 current->job->jid, current->job->pid);
+        current = next;
+        next = NULL;
+        current->job->state = RUNNING;
+        kill(current->job->pid, SIGCONT);
+        
         return;
         
     } else {    /* next == NULL && current != NULL, no switch */
@@ -301,7 +384,37 @@ void do_deq(struct jobcmd deqcmd)
 #endif
 
 	/*TODO 完整deq命令，使指定作业出队，使用kill改变指定作业状态，维护waitqueue，需要printf输出 terminate job jid*/
-		
+	
+	// 在等待队列中查找指定作业
+	for (p = head, prev = NULL; p != NULL; prev = p, p = p->next) {
+		if (p->job->jid == deqid) {
+			select = p;
+			selectprev = prev;
+			break;
+		}
+	}
+
+	// 如果找到了作业
+	if (select != NULL) {
+		// 从等待队列中移除
+		if (selectprev == NULL) {
+			head = select->next;
+		} else {
+			selectprev->next = select->next;
+		}
+
+		// 终止作业
+		kill(select->job->pid, SIGKILL);
+		printf("terminate job %d\n", deqid);
+
+		// 释放资源
+		for (i = 0; (select->job->cmdarg)[i] != NULL; i++) {
+			free((select->job->cmdarg)[i]);
+		}
+		free(select->job->cmdarg);
+		free(select->job);
+		free(select);
+	}
 }
 
 void do_stat()
@@ -416,6 +529,14 @@ int main()
 	/* setup signal handler */
 
 	/*TODO安装信号SIGVTALRM、SIGCHLD，使用sig_handler处理*/
+	newact.sa_sigaction = sig_handler;
+	sigemptyset(&newact.sa_mask);
+	newact.sa_flags = SA_SIGINFO;
+	
+	if (sigaction(SIGVTALRM, &newact, &oldact1) < 0)
+		error_sys("sigaction SIGVTALRM failed");
+	if (sigaction(SIGCHLD, &newact, &oldact2) < 0)
+		error_sys("sigaction SIGCHLD failed");
 
 	/* timer interval: 0s, 1s */
 
